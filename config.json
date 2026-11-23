@@ -1,0 +1,88 @@
+{
+  "hubTitle": "HIO Shutdown Hub",
+  "subtitle": "HIO Digital Data · Shutdown Management Portal",
+  "footer": "Powered by PalmCrest Scheduling Solutions",
+  "accessHash": "c3a6799f834d923a760f4890cb5e67f5f7daea2b726d14fe83176d0cb05ae805",
+  "adminHash": "a1fb4e703a9ef1fa4936801721ff285a97ac85330856674412e054892afe6972",
+  "sessionHours": 12,
+  "rows": [
+    {
+      "name": "Execution",
+      "tiles": [
+        {
+          "id": "dashboard",
+          "title": "Progress Dashboard",
+          "desc": "Shutdown KPIs, S-curve and progress reporting",
+          "icon": "chart",
+          "url": "https://hioshuthub.palmcrest.com.au/dashboard/",
+          "enabled": true,
+          "open": "tab"
+        },
+        {
+          "id": "gantt",
+          "title": "Online Gantt",
+          "desc": "Interactive WBS Gantt from the live schedule",
+          "icon": "gantt",
+          "url": "https://jbbunno.github.io/HUB-HIO-01/gantt/",
+          "enabled": true,
+          "open": "tab"
+        },
+        {
+          "id": "livetrack",
+          "title": "TV Dashboared",
+          "desc": "16:9 Format for dispaly",
+          "icon": "live",
+          "url": "https://hioshuthub.palmcrest.com.au/dashboard/?tv=1",
+          "enabled": true,
+          "open": "tab"
+        }
+      ]
+    },
+    {
+      "name": "Planning",
+      "tiles": [
+        {
+          "id": "docs",
+          "title": "Shutdown Documents",
+          "desc": "System documents and procedures",
+          "icon": "doc",
+          "url": "",
+          "enabled": false,
+          "open": "tab"
+        },
+        {
+          "id": "org",
+          "title": "Shutdown Org Structure",
+          "desc": "Who's who for the shutdown",
+          "icon": "org",
+          "url": "",
+          "enabled": false,
+          "open": "tab"
+        }
+      ]
+    },
+    {
+      "name": "Schedule Data",
+      "tiles": [
+        {
+          "id": "upload",
+          "title": "Schedule Data Upload",
+          "desc": "Upload the MS Project Excel export",
+          "icon": "upload",
+          "url": "https://jbbunno.github.io/HUB-HIO-01/upload/",
+          "enabled": true,
+          "open": "tab"
+        },
+        {
+          "id": "sheet",
+          "title": "Source Data Sheet",
+          "desc": "Google Sheet holding the schedule data",
+          "icon": "sheet",
+          "url": "https://docs.google.com/spreadsheets/d/1rJZekITWewCW6qZEmWmheDzgMDseTRJhBUxVfzQoTmU/edit",
+          "enabled": true,
+          "open": "tab"
+        }
+      ]
+    }
+  ]
+}

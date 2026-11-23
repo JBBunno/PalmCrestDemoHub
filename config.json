@@ -14,7 +14,7 @@
           "title": "Progress Dashboard",
           "desc": "Shutdown KPIs, S-curve and progress reporting",
           "icon": "chart",
-          "url": "https://hioshuthub.palmcrest.com.au/dashboard/",
+          "url": "https://livetrack.palmcrest.com.au//dashboard/",
           "enabled": true,
           "open": "tab"
         },
@@ -23,7 +23,7 @@
           "title": "Online Gantt",
           "desc": "Interactive WBS Gantt from the live schedule",
           "icon": "gantt",
-          "url": "https://jbbunno.github.io/HUB-HIO-01/gantt/",
+          "url": "https://livetrack.palmcrest.com.au//gantt/",
           "enabled": true,
           "open": "tab"
         },
@@ -32,7 +32,7 @@
           "title": "TV Dashboared",
           "desc": "16:9 Format for dispaly",
           "icon": "live",
-          "url": "https://hioshuthub.palmcrest.com.au/dashboard/?tv=1",
+          "url": "https://livetrack.palmcrest.com.au//dashboard/?tv=1",
           "enabled": true,
           "open": "tab"
         }
@@ -69,7 +69,7 @@
           "title": "Schedule Data Upload",
           "desc": "Upload the MS Project Excel export",
           "icon": "upload",
-          "url": "https://jbbunno.github.io/HUB-HIO-01/upload/",
+          "url": "https://livetrack.palmcrest.com.au//upload/",
           "enabled": true,
           "open": "tab"
         },

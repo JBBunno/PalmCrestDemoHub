@@ -69,7 +69,7 @@
           "title": "Schedule Data Upload",
           "desc": "Upload the MS Project Excel export",
           "icon": "upload",
-          "url": "/",
+          "url": "",
           "enabled": true,
           "open": "tab"
         },

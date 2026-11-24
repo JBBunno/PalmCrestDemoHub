@@ -185,6 +185,23 @@ body:not(.sched) .sched-only{display:none!important}
 #drop.on{display:flex}
 #tip{position:fixed;z-index:70;pointer-events:none;background:var(--navy);color:#fff;font-size:12px;padding:7px 9px;border-radius:6px;max-width:320px;display:none;line-height:1.45;box-shadow:0 6px 18px rgba(0,0,0,.2)}
 #toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:var(--navy);color:#fff;padding:9px 16px;border-radius:8px;z-index:95;display:none;font-size:13px}
+/* ---- Gantt write-back (edit % / notes / drag dates) ---- */
+.edit{background:#f3f8ff;border:1px solid #cfe0fb;border-radius:8px;padding:10px 12px;margin:4px 0 14px}
+.edit .er{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.edit .er label{font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);min-width:96px}
+.edit input[type=range]{flex:1;min-width:120px;accent-color:var(--accent)}
+.edit input[type=number]{width:70px}
+.edit .qp button{padding:3px 8px;font-size:12px}
+.edit textarea{width:100%;min-height:74px;font:inherit;font-size:12.5px;border:1px solid var(--line2);border-radius:6px;padding:6px 8px;resize:vertical}
+.edit .ef{display:flex;align-items:center;gap:8px;margin-top:8px}
+.edit .ef span{flex:1;font-size:12px;color:var(--muted)}
+.edit .ef span.err{color:var(--crit)} .edit .ef span.ok{color:var(--done)}
+.edit .hint{font-size:11.5px;color:var(--muted);margin-top:6px}
+.c.num .upd{color:var(--accent);font-weight:700}
+.bar .pu{position:absolute;top:-1px;bottom:-1px;width:2px;background:var(--accent);box-shadow:0 0 0 1px #fff}
+body.sched.canEdit .row:not(.sum) .bar.drg,body.sched.canEdit .row:not(.sum) .ms.drg{cursor:grab;touch-action:none}
+body.barDrag,body.barDrag *{cursor:grabbing!important;user-select:none!important}
+.bar.moving,.ms.moving{outline:2px dashed var(--accent);outline-offset:2px;opacity:.85}
 .foot{padding:4px 14px;font-size:11px;color:var(--muted);background:var(--panel);border-top:1px solid var(--line2);display:flex;gap:12px;flex-wrap:wrap}
 @media (max-width:760px){
   .legend{display:none} #q{width:140px} .kpi .pbar{width:70px}
@@ -314,6 +331,12 @@ body:not(.sched) .sched-only{display:none!important}
   <div class="df"><button id="pinCancel">Cancel</button><button class="primary" id="pinGo">Unlock</button></div>
 </div></div>
 
+<div class="ovl" id="moveOvl"><div class="dlg" style="max-width:420px">
+  <h3>Move task</h3>
+  <div class="db" id="moveBody"></div>
+  <div class="df"><button id="moveCancel">Cancel</button><button class="primary" id="moveGo">Save new dates</button></div>
+</div></div>
+
 <div id="drop">Drop your Project Excel export to load it</div>
 <div id="tip"></div>
 <div id="toast"></div>
@@ -329,7 +352,12 @@ const CONFIG = {
   FILE: '',                     // uses the Google Sheet above (no local Excel file)
   // Sign-in + scheduler PIN are checked by the DEMO dashboard Apps Script (Auth.gs) — same URL as AUTH_URL in the hub.
   // Scheduler mode (tap the "PalmCrest" logo 5 times) uses the hub admin PIN = Script Property ADMIN_PIN.
-  AUTH_URL: 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec'
+  AUTH_URL: 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec',
+  // ---- Gantt write-back: GanttUpdate.gs lives in the same DEMO dashboard Apps Script project,
+  //      so saves go to the same URL as AUTH_URL. Set to '' to make the Gantt read-only again. ----
+  EDIT_URL: 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec',
+  EDIT_PCT_NOTES: 'all',        // who can update % / Notes: 'all' = any signed-in user, 'sched' = scheduler mode only
+  // Dragging bars to new dates is always scheduler mode only (PIN checked again by the server).
 };
 /* ================= access (sign-in token from the hub) ================= */
 const SESSION_KEY = 'pcdemo_hub_session';   // must match NS + 'session' in the hub index.html
@@ -374,7 +402,8 @@ const FIELDS = [
   ['bstart','Baseline start'],['bfinish','Baseline finish'],['astart','Actual start'],['afinish','Actual finish'],
   ['deadline','Deadline'],['sdate','Status date'],['link','Hyperlink'],['exec','Executive summary (Yes/No)'],
   ['slack','Total slack (hrs)'],['cpct','CP/CT flag (1=CP, 2=CT)'],['active','Active (Yes/No)'],
-  ['order','Order number'],['oper','Operation number']
+  ['order','Order number'],['oper','Operation number'],
+  ['uid','Unique ID (for saving)'],['pupd','% update (field, saved by Gantt)']
 ];
 const ALIASES = {
   name:['name','taskname','task','activityname','activity','description','tasks'],
@@ -397,7 +426,8 @@ const ALIASES = {
   exec:['executivesummary','executivcesummary','execsummary','exec'],
   slack:['totalslack','slack','totalfloat','float'], cpct:['cpct','cpctflag','cpflag'],
   active:['active','isactive','taskactive'],
-  order:['ordernumber','order','workorder','wo','orderno'], oper:['operationnumber','operation','operationno','opno','op']
+  order:['ordernumber','order','workorder','wo','orderno'], oper:['operationnumber','operation','operationno','opno','op'],
+  uid:['uniqueid','uid'], pupd:['percentupdate','pctupdate','fieldpercent','fieldcomplete']
 };
 const DATE_FIELDS = ['start','finish','bstart','bfinish','astart','afinish','deadline','sdate'];
 const ST_LABEL = {done:'Complete', late:'Late', ip:'In progress', ns:'Not started', inact:'Inactive'};
@@ -596,6 +626,8 @@ function applyData(opts={}){
       order: String(get(r, 'order') ?? '').trim(),
       oper: String(get(r, 'oper') ?? '').trim(),
       notes: String(get(r, 'notes') ?? '').trim(),
+      uid: String(get(r, 'uid') ?? '').trim(),
+      pupd: (v => { const p = rawPct(v); return p ? Math.max(0, Math.min(100, p.n)) : null; })(get(r, 'pupd')),
       bstart: parseDate(get(r, 'bstart'), dmy), bfinish: parseDate(get(r, 'bfinish'), dmy),
       astart: parseDate(get(r, 'astart'), dmy), afinish: parseDate(get(r, 'afinish'), dmy),
       deadline: parseDate(get(r, 'deadline'), dmy), link: String(get(r, 'link') ?? '').trim(),
@@ -977,7 +1009,9 @@ function rowHTML(t, vi){
       case 'start': cells += `<div class="c dt" style="width:${c.w}px">${fmtShort(t.start)}</div>`; break;
       case 'finish': cells += `<div class="c dt" style="width:${c.w}px">${fmtShort(t.finish)}</div>`; break;
       case 'dur': cells += `<div class="c num" style="width:${c.w}px">${esc(t.durText)}</div>`; break;
-      case 'pct': cells += `<div class="c num" style="width:${c.w}px">${pct}%</div>`; break;
+      case 'pct': cells += hasUpd(t)
+          ? `<div class="c num" style="width:${c.w}px" title="Field update ${Math.round(t.pupd)}% (Project ${pct}%)"><span class="upd">${Math.round(t.pupd)}%</span></div>`
+          : `<div class="c num" style="width:${c.w}px">${pct}%</div>`; break;
     }
   }
   let bars = '';
@@ -986,16 +1020,18 @@ function rowHTML(t, vi){
     bars += `<div class="bl" style="left:${b1}px;width:${Math.max(2, b2 - b1)}px"></div>`;
   }
   if(t.start && t.finish){
-    const x1 = X(+t.start), x2 = X(+t.finish); let lx = x2 + 8;
+    const dx = (S.drag && S.drag.i === t.i && S.drag.moved) ? S.drag.dms * S.px : 0;
+    const x1 = X(+t.start) + dx, x2 = X(+t.finish) + dx; let lx = x2 + 8;
+    const drg = canDrag(t) ? ' drg' : '', mv = dx ? ' moving' : '';
     if(t.milestone){
-      bars += `<div class="ms ${t.inactive ? 'inact' : (t.critical ? 'crit' : '')} ${st === 'done' ? 'done' : ''}" data-act="card" style="left:${x1 - 6}px"></div>`;
+      bars += `<div class="ms ${t.inactive ? 'inact' : (t.critical ? 'crit' : '')} ${st === 'done' ? 'done' : ''}${drg}${mv}" data-act="card" style="left:${x1 - 6}px"></div>`;
       lx = x1 + 12;
     } else if(t.summary){
       bars += `<div class="sbar${t.inactive ? ' inact' : ''}" data-act="card" style="left:${x1}px;width:${Math.max(4, x2 - x1)}px"><div class="pg" style="width:${pct}%"></div></div>`;
       lx = x2 + 10;
     } else {
       const cls = st === 'inact' ? 'inact' : st === 'done' ? 'done' : (t.critical ? 'crit' : '');
-      bars += `<div class="bar ${cls} ${st === 'late' ? 'late' : ''}" data-act="card" style="left:${x1}px;width:${Math.max(3, x2 - x1)}px"><div class="pg" style="width:${pct}%"></div></div>`;
+      bars += `<div class="bar ${cls} ${st === 'late' ? 'late' : ''}${drg}${mv}" data-act="card" style="left:${x1}px;width:${Math.max(3, x2 - x1)}px"><div class="pg" style="width:${pct}%"></div>${hasUpd(t) ? `<div class="pu" style="left:calc(${Math.min(100, t.pupd)}% - 1px)" title="Field update ${Math.round(t.pupd)}%"></div>` : ''}</div>`;
     }
     if(!t.summary) bars += `<div class="lbl" style="left:${lx}px">${esc(t.name)}${t.res ? ' · ' + esc(t.res) : ''}</div>`;
   }
@@ -1076,8 +1112,9 @@ function openCard(i){
   }
   html += `</div>`;
 
-  // Project notes – shown near the top of the card so they're seen first
-  if(t.notes) html += `<div class="sec">Notes from Project</div><div class="notes">${esc(t.notes)}</div>`;
+  if(canEditPN(t)) html += editHTML(t);
+  // Project notes – shown near the top of the card so they're seen first (the edit box shows them when editing is on)
+  else if(t.notes) html += `<div class="sec">Notes from Project</div><div class="notes">${esc(t.notes)}</div>`;
   if(t.synthetic) html += `<div class="kv"><div class="full"><span>Grouped by</span><b>${esc(t.groupCol)}: ${esc(t.groupVal || '(blank)')}</b></div></div>`;
   if(t.summary){
     const leaves = []; (function walk(j){ S.tasks[j].children.forEach(c => S.tasks[c].summary ? walk(c) : leaves.push(S.tasks[c])); })(i);
@@ -1197,6 +1234,7 @@ addEventListener('pointerup', endColDrag); addEventListener('pointercancel', end
 
 
 $('#rows').addEventListener('click', e => {
+  if(Date.now() - (S.dragEnd || 0) < 350) return;   // the click that ends a bar drag
   const row = e.target.closest('.row'); if(!row) return;
   const i = +row.dataset.i, t = S.tasks[i];
   if(e.target.closest('[data-act="card"]')) return openCard(i);
@@ -1209,6 +1247,8 @@ $('#card').addEventListener('click', async e => {
   else if(id === 'cPrev') stepCard(-1);
   else if(id === 'cNext') stepCard(1);
   else if(id === 'cShow') gotoTask(S.selI, true);
+  else if(e.target.dataset.qp != null) setEditPct(+e.target.dataset.qp);
+  else if(id === 'eSave') saveCardEdit();
   else if(id === 'cCopy'){ try { await navigator.clipboard.writeText(cardText(S.tasks[S.selI])); toast('Job card copied – paste into an email or Teams'); } catch(err){ toast('Copy was blocked by the browser'); } }
 });
 addEventListener('keydown', e => {
@@ -1219,7 +1259,7 @@ addEventListener('keydown', e => {
     if(e.key === 'ArrowUp'){ e.preventDefault(); stepCard(-1); }
   }
 });
-function $$ovlClose(){ document.querySelectorAll('.ovl.open').forEach(o => o.classList.remove('open')); }
+function $$ovlClose(){ document.querySelectorAll('.ovl.open').forEach(o => o.classList.remove('open')); if(S.drag){ S.drag = null; render(); } if(pinResume){ pinResume = null; render(); } }
 
 /* tooltip */
 const tip = $('#tip');
@@ -1245,6 +1285,7 @@ function isSched(){ return document.body.classList.contains('sched'); }
 function setSched(on){
   document.body.classList.toggle('sched', on);
   try { on ? sessionStorage.setItem('hiogantt.sched', '1') : sessionStorage.removeItem('hiogantt.sched'); } catch(e) {}
+  if(S.tasks.length){ render(); if($('#card').classList.contains('open') && S.selI >= 0) openCard(S.selI); }   // bars become draggable / not
 }
 let brandTaps = 0, brandTimer = null;
 $('.brand').addEventListener('click', () => {
@@ -1261,7 +1302,10 @@ async function tryPin(){
   try {
     const d = await authCall('adminLogin', {code:pin});
     if(d.ok){
-      setSched(true); $('#pinOvl').classList.remove('open'); toast('Scheduler mode on – Load Excel and Google Sheet are available');
+      S.pin = pin;
+      setSched(true); $('#pinOvl').classList.remove('open');
+      if(pinResume){ const f = pinResume; pinResume = null; f(); }
+      else toast('Scheduler mode on – Load Excel and Google Sheet are available' + (CONFIG.EDIT_URL ? ', and task bars can be dragged' : ''));
     } else { $('#pinErr').textContent = (d.error === 'Invalid code') ? 'Incorrect PIN' : (d.error || 'Incorrect PIN'); $('#pinIn').select(); }
   } catch(e){
     $('#pinErr').textContent = 'Could not reach the server – please try again';
@@ -1269,9 +1313,9 @@ async function tryPin(){
 }
 $('#pinGo').addEventListener('click', tryPin);
 $('#pinIn').addEventListener('keydown', e => { if(e.key === 'Enter') tryPin(); });
-$('#pinCancel').addEventListener('click', () => $('#pinOvl').classList.remove('open'));
+$('#pinCancel').addEventListener('click', () => { $('#pinOvl').classList.remove('open'); if(pinResume){ pinResume = null; render(); } });
 $('#btnLock').addEventListener('click', () => {
-  setSched(false);
+  setSched(false); S.pin = '';
   // back to the official HIO sheet if a different source was loaded
   if(!S.live || S.live.input !== CONFIG.SHEET){ S.live = null; loadGoogle(CONFIG.SHEET); }
   toast('Scheduler mode off');
@@ -1495,7 +1539,7 @@ $('#sheetGo').addEventListener('click', async () => {
   if(await loadGoogle(url, {auto})){ lsSet('hiogantt.sheet', url); $('#sheetOvl').classList.remove('open'); }
 });
 setInterval(() => {
-  if(S.live && S.live.auto > 0 && Date.now() - S.live.at >= S.live.auto * 60000 && !document.hidden && !document.querySelector('.ovl.open'))
+  if(S.live && S.live.auto > 0 && Date.now() - S.live.at >= S.live.auto * 60000 && !document.hidden && !document.querySelector('.ovl.open') && !(typeof editBusy === 'function' && editBusy()))
     loadGoogle(S.live.input, {keepView:true, quiet:true});
 }, 30000);
 
@@ -1515,6 +1559,155 @@ function buildPeopleFilters(){
 }
 $('#fTeam').addEventListener('change', e => { S.fTeam = e.target.value; applyFilter(); scroller.scrollTop = 0; });
 $('#fRes').addEventListener('change', e => { S.fRes = e.target.value; applyFilter(); scroller.scrollTop = 0; });
+
+/* ================= Gantt write-back (GanttUpdate.gs) =================
+   % update + Notes from the job card; drag a bar (scheduler mode) to move Start.
+   Saves go to CONFIG.EDIT_URL; the sheet row is found by Unique_ID + task name. */
+let pinResume = null;
+if(CONFIG.EDIT_URL) document.body.classList.add('canEdit');
+const hasUpd = t => !t.summary && t.pupd != null && t.pupd > 0 && Math.round(t.pupd) !== Math.round(t.pct || 0);
+function editable(t){ return !!(CONFIG.EDIT_URL && S.live && t && !t.synthetic && t.uid); }
+function canEditPN(t){ return editable(t) && (CONFIG.EDIT_PCT_NOTES !== 'sched' || isSched()); }
+function canDrag(t){ return editable(t) && isSched() && !t.summary && t.start && t.finish; }
+const wall = d => `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+
+function editHTML(t){
+  const v = Math.round(t.pupd != null ? t.pupd : (t.pct || 0));
+  let h = `<div class="sec">Update this task</div><div class="edit">`;
+  if(!t.summary){
+    h += `<div class="er"><label>% complete</label><input type="range" id="ePctR" min="0" max="100" step="5" value="${v}"><input type="number" id="ePct" min="0" max="100" step="1" value="${v}"><span>%</span></div>
+      <div class="er qp"><label></label>${[0,25,50,75,90,100].map(n => `<button data-qp="${n}">${n}%</button>`).join('')}</div>`;
+  }
+  h += `<div class="er" style="margin-bottom:4px"><label>Notes</label></div><textarea id="eNotes" maxlength="5000" placeholder="Add a note for the scheduler…">${esc(t.notes)}</textarea>
+    <div class="ef"><span id="eMsg">${t.summary ? '' : `Project shows ${Math.round(t.pct || 0)}% · this saves to Percent_Update`}</span><button class="primary" id="eSave">Save</button></div>
+    ${isSched() && !t.summary ? '<div class="hint">Scheduler mode: drag the bar in the Gantt to move its start date.</div>' : ''}</div>`;
+  return h;
+}
+function setEditPct(n){ const a = $('#ePct'), b = $('#ePctR'); if(a) a.value = n; if(b) b.value = n; }
+document.addEventListener('input', e => {
+  if(e.target.id === 'ePctR') $('#ePct').value = e.target.value;
+  if(e.target.id === 'ePct'){ const n = Math.max(0, Math.min(100, +e.target.value || 0)); $('#ePctR').value = n; }
+});
+
+async function postEdit(t, changes, needPin){
+  const body = {action:'ganttUpdate', token:authToken(), uid:t.uid, name:t.name, changes};
+  if(needPin) body.pin = S.pin;
+  const r = await fetch(CONFIG.EDIT_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body)});
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  const d = await r.json();
+  if(d.auth){ toLogin(); throw new Error('signed out'); }
+  if(d.pin){ S.pin = ''; }
+  if(!d.ok) throw new Error(d.error || 'Save failed');
+  // a save just happened – hold off the next auto-refresh so the sheet export catches up
+  if(S.live) S.live.at = Date.now();
+  return d;
+}
+async function saveCardEdit(){
+  const t = S.tasks[S.selI]; if(!t) return;
+  const ch = {};
+  const pe = $('#ePct');
+  if(pe){
+    const n = Math.round(Math.max(0, Math.min(100, +pe.value || 0)));
+    if(n !== Math.round(t.pupd != null ? t.pupd : -1)) ch.pct = n;
+  }
+  const nv = $('#eNotes').value.replace(/\s+$/, '');
+  if(nv !== t.notes) ch.notes = nv;
+  const msg = $('#eMsg'), btn = $('#eSave');
+  if(!Object.keys(ch).length){ msg.className = ''; msg.textContent = 'No changes to save'; return; }
+  btn.disabled = true; msg.className = ''; msg.textContent = 'Saving…';
+  try {
+    await postEdit(t, ch);
+    if(ch.pct != null){ t.pupd = ch.pct; setRaw(t, 'pupd', ch.pct); }
+    if(ch.notes != null){ t.notes = ch.notes; setRaw(t, 'notes', ch.notes); }
+    t.search = (t.name + ' ' + t.wbs + ' ' + t.id + ' ' + t.res + ' ' + t.notes + ' ' + t.raw.join(' ')).toLowerCase();
+    updateKPI(); openCard(t.i);
+    const m = $('#eMsg'); if(m){ m.className = 'ok'; m.textContent = 'Saved to the sheet ✓'; }
+  } catch(err){
+    msg.className = 'err'; msg.textContent = 'Not saved – ' + err.message; btn.disabled = false;
+  }
+}
+// true while someone is part-way through an edit, so auto-refresh doesn't wipe it
+function editBusy(){
+  if(S.drag || $('#moveOvl').classList.contains('open')) return true;
+  const n = $('#eNotes'); if(!n || !$('#card').classList.contains('open')) return false;
+  const t = S.tasks[S.selI]; if(!t) return false;
+  const pe = $('#ePct');
+  return n.value.replace(/\s+$/, '') !== t.notes || (pe && +pe.value !== Math.round(t.pupd != null ? t.pupd : (t.pct || 0))) || $('#card').contains(document.activeElement) && /TEXTAREA|INPUT/.test(document.activeElement.tagName);
+}
+function setRaw(t, f, v){ const P = S.pending; if(P && P.map[f] != null && P.map[f] >= 0) t.raw[P.map[f]] = v; }
+
+/* ---- drag a bar to a new start (scheduler mode) ---- */
+const SNAP = {hour:15*60e3, shift:30*60e3, day:HOUR, week:DAY, month:DAY};
+$('#rows').addEventListener('pointerdown', e => {
+  const b = e.target.closest('.bar.drg,.ms.drg'); if(!b || e.button !== 0) return;
+  const t = S.tasks[+b.closest('.row').dataset.i]; if(!canDrag(t)) return;
+  e.preventDefault();
+  S.drag = {i:t.i, x0:e.clientX, dms:0, moved:false, raf:0};
+});
+addEventListener('pointermove', e => {
+  const D = S.drag; if(!D || $('#moveOvl').classList.contains('open')) return;
+  const dx = e.clientX - D.x0;
+  if(!D.moved && Math.abs(dx) < 5) return;
+  if(!D.moved){ D.moved = true; document.body.classList.add('barDrag'); tip.style.display = 'none'; }
+  const snap = SNAP[S.zoom] || HOUR;
+  D.dms = Math.round(dx / S.px / snap) * snap;
+  const t = S.tasks[D.i];
+  tip.innerHTML = `<b>${esc(t.name)}</b><br>Start ${fmtLong(new Date(+t.start + D.dms))}<br>Finish ${fmtLong(new Date(+t.finish + D.dms))}<br>${D.dms ? (D.dms > 0 ? '+' : '−') + fmtDurMs(D.dms) : 'no change'}`;
+  tip.style.display = 'block';
+  tip.style.left = Math.min(e.clientX + 14, innerWidth - tip.offsetWidth - 8) + 'px';
+  tip.style.top = Math.min(e.clientY + 14, innerHeight - tip.offsetHeight - 8) + 'px';
+  if(!D.raf) D.raf = requestAnimationFrame(() => { if(S.drag) S.drag.raf = 0; renderRows(); });
+});
+function endBarDrag(){
+  const D = S.drag; if(!D || $('#moveOvl').classList.contains('open')) return;
+  document.body.classList.remove('barDrag'); tip.style.display = 'none';
+  if(!D.moved){ S.drag = null; return; }          // just a click – opens the job card as normal
+  S.dragEnd = Date.now();
+  if(!D.dms){ S.drag = null; render(); return; }
+  const t = S.tasks[D.i];
+  const ns = new Date(+t.start + D.dms), nf = new Date(+t.finish + D.dms);
+  $('#moveBody').innerHTML = `<p style="margin-top:0"><b>${esc(t.name)}</b></p>
+    <div class="kv" style="margin-bottom:6px">
+      <div><span>Start</span><b>${fmtLong(t.start)}</b></div><div><span>New start</span><b style="color:var(--accent)">${fmtLong(ns)}</b></div>
+      <div><span>Finish</span><b>${fmtLong(t.finish)}</b></div><div><span>New finish</span><b style="color:var(--accent)">${fmtLong(nf)}</b></div>
+    </div>
+    <p style="color:var(--muted);margin-bottom:0;font-size:12px">Moves the task ${D.dms > 0 ? 'later' : 'earlier'} by ${fmtDurMs(D.dms)} and keeps its duration. Linked tasks are not moved – re-import into MS Project to reschedule the logic.</p>`;
+  $('#moveGo').disabled = false;
+  $('#moveOvl').classList.add('open');
+}
+addEventListener('pointerup', endBarDrag); addEventListener('pointercancel', endBarDrag);
+function cancelMove(){ $('#moveOvl').classList.remove('open'); S.drag = null; render(); }
+$('#moveCancel').addEventListener('click', cancelMove);
+$('#moveOvl').addEventListener('click', e => { if(e.target.id === 'moveOvl') cancelMove(); });
+async function saveMove(){
+  const D = S.drag; if(!D) return;
+  const t = S.tasks[D.i];
+  if(!S.pin){   // scheduler mode came from an earlier page load – ask for the PIN once
+    $('#moveOvl').classList.remove('open');
+    pinResume = () => { $('#moveOvl').classList.add('open'); saveMove(); };
+    $('#pinIn').value = ''; $('#pinErr').textContent = 'Enter the scheduler PIN to save the new dates';
+    $('#pinOvl').classList.add('open'); setTimeout(() => $('#pinIn').focus(), 50);
+    return;
+  }
+  const ns = new Date(+t.start + D.dms), nf = new Date(+t.finish + D.dms);
+  $('#moveGo').disabled = true;
+  try {
+    await postEdit(t, {start:wall(ns), finish:wall(nf)}, true);
+    t.start = ns; t.finish = nf;
+    setRaw(t, 'start', fmtShort(ns)); setRaw(t, 'finish', fmtShort(nf));
+    $('#moveOvl').classList.remove('open'); S.drag = null;
+    const prev = snapshotView(), cardOpen = $('#card').classList.contains('open');
+    rebuildTree(); restoreView(prev); updateKPI(); layout(); refresh();
+    scroller.scrollTop = prev.top; scroller.scrollLeft = prev.left;
+    if(cardOpen && S.selI >= 0) openCard(S.selI);
+    toast('New dates saved to the sheet');
+  } catch(err){
+    $('#moveGo').disabled = false;
+    if(!S.pin && /PIN/i.test(err.message)){ saveMove(); return; }   // wrong/expired PIN – ask again
+    toast('Not saved – ' + err.message, 5000);
+  }
+}
+$('#moveGo').addEventListener('click', saveMove);
 
 /* ================= boot ================= */
 async function boot(){

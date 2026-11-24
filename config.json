@@ -43,11 +43,11 @@
       "tiles": [
         {
           "id": "docs",
-          "title": "Shutdown Documents",
+          "title": "Shutdown Readiness",
           "desc": "System documents and procedures",
           "icon": "doc",
           "url": "",
-          "enabled": false,
+          "enabled": true,
           "open": "tab"
         },
         {
@@ -56,7 +56,7 @@
           "desc": "Who's who for the shutdown",
           "icon": "org",
           "url": "",
-          "enabled": false,
+          "enabled": true,
           "open": "tab"
         }
       ]
@@ -69,7 +69,7 @@
           "title": "Schedule Data Upload",
           "desc": "Upload the MS Project Excel export",
           "icon": "upload",
-          "url": "https://livetrack.palmcrest.com.au//upload/",
+          "url": "/",
           "enabled": true,
           "open": "tab"
         },
@@ -78,7 +78,7 @@
           "title": "Source Data Sheet",
           "desc": "Google Sheet holding the schedule data",
           "icon": "sheet",
-          "url": "https://docs.google.com/spreadsheets/d/1rJZekITWewCW6qZEmWmheDzgMDseTRJhBUxVfzQoTmU/edit",
+          "url": "",
           "enabled": true,
           "open": "tab"
         }

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>HIO Shutdown Hub</title>
+<title>Shutdown Hub</title>
 <style>
   :root{
     --navy:#0d1e35; --navy2:#132a48; --navy3:#1a365c;
@@ -193,15 +193,10 @@
     <div id="admRows"></div>
 
     <div class="adm-section">
-      <h4>Change access code / admin PIN</h4>
-      <p class="hint" style="margin-bottom:8px">Type a new code, click Generate, then paste the hash into
-        <code>accessHash</code> or <code>adminHash</code> in config.json (or use the buttons to set it here, then Copy config.json).</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <input class="adm-in" id="hashIn" placeholder="New code or PIN" style="flex:1;min-width:160px">
-        <button class="btn small" id="setAccess">Set as access code</button>
-        <button class="btn small" id="setAdmin">Set as admin PIN</button>
-      </div>
-      <div class="hashout" id="hashOut"></div>
+      <h4>Access code / admin PIN</h4>
+      <p class="hint" style="margin:0">Codes are held in the Apps Script backend, not in this page or config.json.
+        To change them: Apps Script &rarr; Project Settings &rarr; Script Properties &rarr; <code>ACCESS_CODE</code> / <code>ADMIN_PIN</code>.
+        New codes apply to the next sign-in straight away. To sign everyone out, delete <code>TOKEN_SECRET</code>.</p>
     </div>
 
     <div class="adm-actions">
@@ -215,12 +210,16 @@
 
 <script>
 /* =====================================================================
-   HIO Shutdown Hub — Part 1
+   PalmCrest Demo Shutdown Hub
    Only instance-specific constants are below. Update CONFIG_URL if the
    repo is renamed or created from a template.
+   Sign-in is checked by the Apps Script backend (Auth.gs) — no codes or
+   hashes are kept in this page or in config.json.
    ===================================================================== */
 const CONFIG_URL = 'https://raw.githubusercontent.com/JBBunno/PalmCrestDemoHub/main/config.json';
-const NS = 'hio_hub_';            // localStorage namespace (unique per hub on jbbunno.github.io)
+// DEMO dashboard Apps Script deployment (the project that has Auth.gs) — same URL as GAS_URL in dashboard/index.html
+const AUTH_URL   = 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec';
+const NS = 'pcdemo_hub_';         // localStorage namespace — dashboard pages read NS+'session' for the sign-in token
 
 /* ---------- icons ---------- */
 const ICONS = {
@@ -244,9 +243,11 @@ let isPreview = false;
 const $ = id => document.getElementById(id);
 
 /* ---------- helpers ---------- */
-async function sha256(txt){
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
-  return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');
+async function authCall(action, params){
+  const q=Object.entries(params||{}).map(([k,v])=>'&'+k+'='+encodeURIComponent(v)).join('');
+  const r=await fetch(AUTH_URL+'?action='+action+q+'&t='+Date.now());
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
 }
 function toast(msg){
   const t=document.createElement('div');t.className='toast';t.textContent=msg;document.body.appendChild(t);
@@ -277,13 +278,14 @@ async function loadConfig(){
 }
 
 /* ---------- session ---------- */
+// Session = signed token from Apps Script: {token, exp, role}. Expiry is set by AUTH_TTL_HOURS in Auth.gs.
 function sessionValid(){
   const s=lsGet('session');
-  return s && s.exp && Date.now()<s.exp;
+  return !!(s && s.token && s.exp && Date.now()<s.exp);
 }
-function startSession(){
-  const hrs=Number(cfg.sessionHours)||12;
-  lsSet('session',{exp:Date.now()+hrs*3600e3});
+async function tokenStillValid(){
+  try{ const d=await authCall('checkToken',{token:lsGet('session').token}); return !!d.ok; }
+  catch(e){ return true; }   // server unreachable: keep the local session (the hub itself holds no data)
 }
 
 /* ---------- login ---------- */
@@ -298,11 +300,20 @@ function showLogin(){
 async function doLogin(){
   const code=$('codeIn').value.trim();
   if(!code){$('loginErr').textContent='Please enter the access code';return;}
-  const h=await sha256(code);
-  if(h===cfg.accessHash || h===cfg.adminHash){
-    startSession();showHub();
-  }else{
-    $('loginErr').textContent='Incorrect access code';$('codeIn').select();
+  const btn=$('loginBtn');
+  btn.disabled=true;btn.textContent='Checking…';$('loginErr').textContent='';
+  try{
+    const d=await authCall('login',{code});
+    if(d.ok){
+      lsSet('session',{token:d.token,exp:d.exp,role:d.role});showHub();
+    }else{
+      $('loginErr').textContent=(d.error==='Invalid code')?'Incorrect access code':(d.error||'Incorrect access code');
+      $('codeIn').select();
+    }
+  }catch(e){
+    $('loginErr').textContent='Could not reach the server — please try again';
+  }finally{
+    btn.disabled=false;btn.textContent='Sign in';
   }
 }
 
@@ -384,10 +395,21 @@ function logoTap(){
   }
 }
 async function checkPin(){
-  const h=await sha256($('pinIn').value.trim());
-  if(h===cfg.adminHash){
-    isAdmin=true;$('pinModal').classList.add('hidden');render();openAdmin();
-  }else{$('pinErr').textContent='Incorrect PIN';$('pinIn').select();}
+  const pin=$('pinIn').value.trim();
+  if(!pin){$('pinErr').textContent='Enter the admin PIN';return;}
+  $('pinOk').disabled=true;$('pinErr').textContent='';
+  try{
+    const d=await authCall('adminLogin',{code:pin});
+    if(d.ok){
+      isAdmin=true;$('pinModal').classList.add('hidden');render();openAdmin();
+    }else{
+      $('pinErr').textContent=(d.error==='Invalid code')?'Incorrect PIN':(d.error||'Incorrect PIN');$('pinIn').select();
+    }
+  }catch(e){
+    $('pinErr').textContent='Could not reach the server — please try again';
+  }finally{
+    $('pinOk').disabled=false;
+  }
 }
 
 /* ---------- admin panel ---------- */
@@ -396,7 +418,6 @@ function openAdmin(){
   draft=JSON.parse(JSON.stringify(cfg));
   $('admTitle').value=draft.hubTitle||'';
   $('admSub').value=draft.subtitle||'';
-  $('hashIn').value='';$('hashOut').textContent='';
   const wrap=$('admRows');wrap.innerHTML='';
   draft.rows.forEach((row,ri)=>{
     const sec=document.createElement('div');sec.className='adm-section';
@@ -428,12 +449,8 @@ function openAdmin(){
 function collectDraftText(){
   draft.hubTitle=$('admTitle').value.trim();
   draft.subtitle=$('admSub').value.trim();
-}
-async function setHash(field){
-  const v=$('hashIn').value.trim();
-  if(v.length<4){$('hashOut').textContent='Use at least 4 characters.';return;}
-  const h=await sha256(v);draft[field]=h;
-  $('hashOut').textContent=field+' set → '+h+'  (Copy config.json to make it live)';
+  // codes now live in Apps Script — make sure old hash fields never go back into config.json
+  delete draft.accessHash;delete draft.adminHash;delete draft.sessionHours;
 }
 
 /* ---------- wire up ---------- */
@@ -457,8 +474,6 @@ function wire(){
   $('admCopy').onclick=async()=>{collectDraftText();
     const ok=await copyText(JSON.stringify(draft,null,2));
     toast(ok?'config.json copied — paste into GitHub':'Copy failed — select manually');};
-  $('setAccess').onclick=()=>setHash('accessHash');
-  $('setAdmin').onclick=()=>setHash('adminHash');
 }
 
 /* ---------- start ---------- */
@@ -471,7 +486,8 @@ function wire(){
   }
   cfg=liveCfg;
   tick();setInterval(tick,30000);
-  if(sessionValid()) showHub(); else showLogin();
+  if(sessionValid() && await tokenStillValid()) showHub();
+  else { lsDel('session'); showLogin(); }
 })();
 </script>
 </body>

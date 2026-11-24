@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>HIO Schedule Viewer – Gantt</title>
+<title>Schedule Viewer – Gantt</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -195,7 +195,7 @@ body:not(.sched) .sched-only{display:none!important}
 <body>
 
 <div class="top">
-  <div class="brand">PalmCrest<small>HIO Schedule Viewer</small></div>
+  <div class="brand">PalmCrest<small>Schedule Viewer</small></div>
   <div class="proj" id="projName">Loading…<small id="projSub"></small></div>
   <div class="kpi" id="kpi"></div>
   <button id="btnRefresh" title="Reload the Google Sheet now" style="display:none">⟳ Refresh</button>
@@ -326,11 +326,26 @@ const CONFIG = {
   // Add #gid=NNN (from the sheet's URL) to pick a tab other than the first one.
   SHEET: 'https://docs.google.com/spreadsheets/d/1rJZekITWewCW6qZEmWmheDzgMDseTRJhBUxVfzQoTmU/edit#gid=322475886',   // HIO Gantt Data – Tasks tab
   AUTO_REFRESH_MIN: 5,          // minutes between automatic reloads of the Google Sheet (0 = off)
-  FILE: '',                     // HIO uses the Google Sheet above (no local Excel file)
-  // Scheduler PIN (SHA-256 hash). Tap the "PalmCrest" logo 5 times to unlock Load Excel / Google Sheet.
-  // Default PIN 2468 – to change, hash a new PIN (e.g. the Hub admin "Change access code" tool) and paste here.
-  SCHED_PIN_HASH: 'a1fb4e703a9ef1fa4936801721ff285a97ac85330856674412e054892afe6972'
+  FILE: '',                     // uses the Google Sheet above (no local Excel file)
+  // Sign-in + scheduler PIN are checked by the DEMO dashboard Apps Script (Auth.gs) — same URL as AUTH_URL in the hub.
+  // Scheduler mode (tap the "PalmCrest" logo 5 times) uses the hub admin PIN = Script Property ADMIN_PIN.
+  AUTH_URL: 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec'
 };
+/* ================= access (sign-in token from the hub) ================= */
+const SESSION_KEY = 'pcdemo_hub_session';   // must match NS + 'session' in the hub index.html
+const HUB_URL = '../';                       // hub is one folder up from /gantt/
+function authToken(){
+  try { const s = JSON.parse(localStorage.getItem(SESSION_KEY)); if(s && s.token && Date.now() < s.exp) return s.token; } catch(e) {}
+  return null;
+}
+function toLogin(){ try { localStorage.removeItem(SESSION_KEY); } catch(e) {} location.replace(HUB_URL); }
+async function authCall(action, params){
+  const q = Object.entries(params || {}).map(([k, v]) => '&' + k + '=' + encodeURIComponent(v)).join('');
+  const r = await fetch(CONFIG.AUTH_URL + '?action=' + action + q + '&t=' + Date.now());
+  if(!r.ok) throw new Error('HTTP ' + r.status);
+  return r.json();
+}
+if(!authToken()) toLogin();
 /* ================= constants ================= */
 const RH = 26, HDR = 48;
 const HOUR = 36e5, DAY = 864e5;
@@ -1231,10 +1246,6 @@ function setSched(on){
   document.body.classList.toggle('sched', on);
   try { on ? sessionStorage.setItem('hiogantt.sched', '1') : sessionStorage.removeItem('hiogantt.sched'); } catch(e) {}
 }
-async function sha256(t){
-  const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t));
-  return [...new Uint8Array(b)].map(x => x.toString(16).padStart(2, '0')).join('');
-}
 let brandTaps = 0, brandTimer = null;
 $('.brand').addEventListener('click', () => {
   brandTaps++; clearTimeout(brandTimer); brandTimer = setTimeout(() => brandTaps = 0, 2000);
@@ -1244,9 +1255,17 @@ $('.brand').addEventListener('click', () => {
   }
 });
 async function tryPin(){
-  if(await sha256($('#pinIn').value.trim()) === CONFIG.SCHED_PIN_HASH){
-    setSched(true); $('#pinOvl').classList.remove('open'); toast('Scheduler mode on – Load Excel and Google Sheet are available');
-  } else { $('#pinErr').textContent = 'Incorrect PIN'; $('#pinIn').select(); }
+  const pin = $('#pinIn').value.trim();
+  if(!pin){ $('#pinErr').textContent = 'Enter the scheduler PIN'; return; }
+  $('#pinGo').disabled = true; $('#pinErr').textContent = '';
+  try {
+    const d = await authCall('adminLogin', {code:pin});
+    if(d.ok){
+      setSched(true); $('#pinOvl').classList.remove('open'); toast('Scheduler mode on – Load Excel and Google Sheet are available');
+    } else { $('#pinErr').textContent = (d.error === 'Invalid code') ? 'Incorrect PIN' : (d.error || 'Incorrect PIN'); $('#pinIn').select(); }
+  } catch(e){
+    $('#pinErr').textContent = 'Could not reach the server – please try again';
+  } finally { $('#pinGo').disabled = false; }
 }
 $('#pinGo').addEventListener('click', tryPin);
 $('#pinIn').addEventListener('keydown', e => { if(e.key === 'Enter') tryPin(); });
@@ -1499,6 +1518,9 @@ $('#fRes').addEventListener('change', e => { S.fRes = e.target.value; applyFilte
 
 /* ================= boot ================= */
 async function boot(){
+  // signed-in check against the server (catches sign-out-everyone); if the server can't be reached, carry on
+  if(!authToken()) return;
+  try { const a = await authCall('checkToken', {token:authToken()}); if(!a.ok){ toLogin(); return; } } catch(e) {}
   setStatusInput(); buildZoomButtons();
   let qs = {};
   try { qs = Object.fromEntries(new URLSearchParams(location.search)); } catch(e) {}

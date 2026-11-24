@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>HIO Shutdown Dashboard</title>
+<title>Shutdown Dashboard</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Inter:wght@300;400;500;600&display=swap');
 :root {
@@ -330,7 +330,7 @@ html.tv .pd-tile{min-height:84px}
 </div>
 <header>
   <span class="logo">Palm Crest</span>
-  <span class="hdr-name" id="hdrName">HIO Shutdown Dashboard</span>
+  <span class="hdr-name" id="hdrName">Shutdown Dashboard</span>
   <span class="hdr-meta" id="hdrUpload"></span>
   <span class="hdr-ago" id="hdrAgo"></span>
   <button class="sd-chip" id="sdChip" onclick="sdOpen()" title="Scheduler: change the status date (PIN)">Status date: —</button>
@@ -501,7 +501,24 @@ html.tv .pd-tile{min-height:84px}
 // ══════════════════════════════════════════════════════════════
 // CONFIG — paste your deployed GAS Web App URL here
 // ══════════════════════════════════════════════════════════════
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec';   // HIO Dashboard API deployment URL
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec';   // DEMO Dashboard API deployment URL
+// ── ACCESS (sign-in token from the hub) ───────────────────────
+// The hub stores {token, exp} under this key after sign-in; every GAS call sends the token.
+// No token / expired / rejected → back to the hub sign-in page.
+const SESSION_KEY = 'pcdemo_hub_session';   // must match NS + 'session' in the hub index.html
+const HUB_URL = '../';                       // hub is one folder up from /dashboard/
+function authToken() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY));
+    if (s && s.token && Date.now() < s.exp) return s.token;
+  } catch (e) {}
+  return null;
+}
+function toLogin() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
+  location.replace(HUB_URL);
+}
+if (!authToken()) toLogin();
 // ── STATE ─────────────────────────────────────────────────────
 let _exec = null, _gantt = null, _scurve = null, _field = null, _critical = null, _vendor = null;
 let _outDates = null;
@@ -549,10 +566,13 @@ function switchTab(id, btn) {
 }
 // ── FETCH ─────────────────────────────────────────────────────
 async function gas(action, extra) {
-  const url = GAS_URL + '?action=' + action + (extra || '') + '&t=' + Date.now();
+  const tok = authToken();
+  if (!tok) { toLogin(); throw new Error('Signed out — returning to sign-in'); }
+  const url = GAS_URL + '?action=' + action + (extra || '') + '&token=' + encodeURIComponent(tok) + '&t=' + Date.now();
   const r = await fetch(url);
   if (!r.ok) throw new Error('HTTP ' + r.status);
   const data = await r.json();
+  if (data.error === 'auth') { toLogin(); throw new Error('Session expired — please sign in again'); }
   if (data.error) throw new Error(data.error);
   return data;
 }
@@ -1618,7 +1638,7 @@ async function sdSave(){
   btn.disabled = true; msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
   try {
     const r = await fetch(GAS_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action: 'setStatusDate', pin, statusDate: v }) });
+      body: JSON.stringify({ action: 'setStatusDate', pin, statusDate: v, token: authToken() }) });
     const d = await r.json();
     if (!d.ok) { msg.style.color = 'var(--red)'; msg.textContent = d.message || 'Could not save.'; return; }
     sdClose();

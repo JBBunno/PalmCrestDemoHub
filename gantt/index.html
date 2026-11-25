@@ -627,7 +627,8 @@ function applyData(opts={}){
       oper: String(get(r, 'oper') ?? '').trim(),
       notes: String(get(r, 'notes') ?? '').trim(),
       uid: String(get(r, 'uid') ?? '').trim(),
-      pupd: (v => { const p = rawPct(v); return p ? Math.max(0, Math.min(100, p.n)) : null; })(get(r, 'pupd')),
+      // Percent_Update is stored as a decimal like Percent_Complete (1 = 100%, 0.75 = 75%); "75%" text or >1 is already a percent
+      pupd: (v => { const p = rawPct(v); return p ? Math.max(0, Math.min(100, (p.s || p.n > 1) ? p.n : p.n * 100)) : null; })(get(r, 'pupd')),
       bstart: parseDate(get(r, 'bstart'), dmy), bfinish: parseDate(get(r, 'bfinish'), dmy),
       astart: parseDate(get(r, 'astart'), dmy), afinish: parseDate(get(r, 'afinish'), dmy),
       deadline: parseDate(get(r, 'deadline'), dmy), link: String(get(r, 'link') ?? '').trim(),
@@ -1594,10 +1595,12 @@ async function postEdit(t, changes, needPin){
   if(needPin) body.pin = S.pin;
   const r = await fetch(CONFIG.EDIT_URL, {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body)});
   if(!r.ok) throw new Error('HTTP ' + r.status);
-  const d = await r.json();
+  const txt = await r.text();
+  let d; try { d = JSON.parse(txt); } catch(e) { console.warn('Gantt save – server reply:', txt); throw new Error('script did not return JSON – is the new version deployed?'); }
   if(d.auth){ toLogin(); throw new Error('signed out'); }
   if(d.pin){ S.pin = ''; }
-  if(!d.ok) throw new Error(d.error || 'Save failed');
+  // no "error" text = the reply came from the dashboard's own doPost, not GanttUpdate.gs (hook line missing / old version deployed)
+  if(!d.ok) throw new Error(d.error || ('GanttUpdate not reached – script replied: ' + (d.message || txt.slice(0, 120))));
   // a save just happened – hold off the next auto-refresh so the sheet export catches up
   if(S.live) S.live.at = Date.now();
   return d;
@@ -1617,7 +1620,7 @@ async function saveCardEdit(){
   btn.disabled = true; msg.className = ''; msg.textContent = 'Saving…';
   try {
     await postEdit(t, ch);
-    if(ch.pct != null){ t.pupd = ch.pct; setRaw(t, 'pupd', ch.pct); }
+    if(ch.pct != null){ t.pupd = ch.pct; setRaw(t, 'pupd', ch.pct / 100); }
     if(ch.notes != null){ t.notes = ch.notes; setRaw(t, 'notes', ch.notes); }
     t.search = (t.name + ' ' + t.wbs + ' ' + t.id + ' ' + t.res + ' ' + t.notes + ' ' + t.raw.join(' ')).toLowerCase();
     updateKPI(); openCard(t.i);

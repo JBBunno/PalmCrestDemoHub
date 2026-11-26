@@ -26,7 +26,7 @@
         },
         {
           "id": "livetrack",
-          "title": "TV Dashboared",
+          "title": "TV Dashboard",
           "desc": "16:9 Format for dispaly",
           "icon": "live",
           "url": "https://livetrack.palmcrest.com.au//dashboard/?tv=1",
@@ -59,7 +59,7 @@
         {
           "id": "tile-mwww3t9g9eb",
           "title": "Schedule Readiness",
-          "desc": "Schedule Progress Taracker",
+          "desc": "Schedule Progress Tracker",
           "icon": "gantt",
           "url": "https://scheduleready.palmcrest.com.au/",
           "enabled": true,

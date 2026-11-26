@@ -91,18 +91,32 @@
   /* ---------- MODALS ---------- */
   .modal{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:30;display:flex;align-items:flex-start;
     justify-content:center;padding:30px 14px;overflow:auto}
-  .modal .box{width:100%;max-width:860px;background:var(--navy2);border:1px solid var(--line);border-radius:14px;padding:22px}
+  .modal .box{width:100%;max-width:1060px;background:var(--navy2);border:1px solid var(--line);border-radius:14px;padding:22px}
   .modal.narrow .box{max-width:360px;text-align:center}
   .modal h2{margin:0 0 6px;font-weight:300}
   .modal .hint{color:var(--muted);font-size:13px;margin:0 0 16px}
   .adm-section{border-top:1px solid var(--line);padding-top:14px;margin-top:14px}
   .adm-section h4{margin:0 0 10px;color:var(--amber);font-weight:400;letter-spacing:1px;text-transform:uppercase;font-size:13px}
-  .adm-tile{display:grid;grid-template-columns:28px 1fr 1fr 2fr 90px;gap:8px;align-items:center;margin-bottom:8px}
+  .adm-rowhead{display:flex;align-items:center;gap:8px;margin-bottom:10px}
+  .adm-rowhead .adm-in{flex:1;max-width:340px;color:var(--amber);text-transform:uppercase;letter-spacing:1px}
+  .adm-rowhead .lbl{color:var(--amber);font-size:11px;letter-spacing:1px;text-transform:uppercase}
+  .adm-tile{display:grid;grid-template-columns:28px 1fr 1.2fr 1.7fr 96px 92px 92px;gap:8px;align-items:center;margin-bottom:8px}
   .adm-tile input[type=text],.adm-tile select,.adm-in{
     width:100%;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--navy);color:var(--text);font-size:13px}
   .adm-tile input[type=checkbox]{width:18px;height:18px;accent-color:var(--amber)}
-  .adm-colhead{display:grid;grid-template-columns:28px 1fr 1fr 2fr 90px;gap:8px;color:var(--muted);font-size:11px;
+  .adm-colhead{display:grid;grid-template-columns:28px 1fr 1.2fr 1.7fr 96px 92px 92px;gap:8px;color:var(--muted);font-size:11px;
     text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
+  .adm-btns{display:flex;gap:4px}
+  .ibtn{flex:none;width:28px;height:32px;padding:0;border-radius:7px;border:1px solid var(--line);background:transparent;
+    color:var(--teal);font-size:14px;cursor:pointer;line-height:1}
+  .ibtn:hover:not(:disabled){border-color:var(--teal);background:rgba(90,180,212,.1)}
+  .ibtn.del{color:var(--bad)}
+  .ibtn.del:hover:not(:disabled){border-color:var(--bad);background:rgba(224,90,90,.12)}
+  .ibtn:disabled{opacity:.25;cursor:default}
+  .addbtn{background:transparent;border:1px dashed var(--line);color:var(--teal);border-radius:8px;padding:7px 14px;
+    font-size:13px;cursor:pointer;margin-top:2px}
+  .addbtn:hover{border-color:var(--teal);background:rgba(90,180,212,.08)}
+  .adm-empty{color:var(--muted);font-size:13px;font-style:italic;margin:0 0 8px}
   .adm-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
   .hashout{font-family:Consolas,monospace;font-size:11px;word-break:break-all;color:var(--teal);margin-top:8px;min-height:14px}
   .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);background:var(--amber);color:#1b1203;
@@ -112,6 +126,7 @@
     .adm-tile,.adm-colhead{grid-template-columns:24px 1fr}
     .adm-colhead{display:none}
     .adm-tile .wide-only{grid-column:2}
+    .adm-tile{border-bottom:1px solid var(--line);padding-bottom:10px}
   }
 </style>
 </head>
@@ -179,18 +194,23 @@
 <div id="adminModal" class="modal hidden">
   <div class="box">
     <h2>Hub settings</h2>
-    <p class="hint">Edit tiles, then <b>Preview</b> to check them here. To make changes live for everyone,
-      click <b>Copy config.json</b> and paste it over config.json in the GitHub repo (takes up to ~5 min to show).</p>
+    <p class="hint">Edit, add, remove or reorder sections and tiles (&uarr; &darr; move, &times; remove), then <b>Preview</b> to check them here.
+      To make changes live for everyone, click <b>Copy config.json</b> and paste it over config.json in the GitHub repo (takes up to ~5 min to show).</p>
 
     <div class="adm-section">
       <h4>Hub text</h4>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
         <input class="adm-in" id="admTitle" placeholder="Hub title">
         <input class="adm-in" id="admSub" placeholder="Subtitle">
+        <input class="adm-in" id="admFooter" placeholder="Footer text" style="grid-column:1/-1">
       </div>
     </div>
 
     <div id="admRows"></div>
+
+    <div class="adm-section">
+      <button class="addbtn" id="admAddRow">+ Add section</button>
+    </div>
 
     <div class="adm-section">
       <h4>Access code / admin PIN</h4>
@@ -414,41 +434,105 @@ async function checkPin(){
 
 /* ---------- admin panel ---------- */
 let draft=null;
+const ICON_NAMES={chart:'Chart',gantt:'Gantt',live:'Live / TV',doc:'Document',org:'Org chart',upload:'Upload',sheet:'Sheet',link:'Link'};
+function newTileId(){ return 'tile-'+Date.now().toString(36)+Math.random().toString(36).slice(2,5); }
+function swap(arr,i,j){ if(j<0||j>=arr.length) return; const x=arr[i];arr[i]=arr[j];arr[j]=x; }
+function iconBtn(label,title,fn,opts){
+  const b=document.createElement('button');b.type='button';b.className='ibtn'+(opts&&opts.del?' del':'');
+  b.textContent=label;b.title=title;if(opts&&opts.disabled) b.disabled=true;
+  b.addEventListener('click',fn);return b;
+}
 function openAdmin(){
   draft=JSON.parse(JSON.stringify(cfg));
+  if(!Array.isArray(draft.rows)) draft.rows=[];
   $('admTitle').value=draft.hubTitle||'';
   $('admSub').value=draft.subtitle||'';
+  $('admFooter').value=draft.footer||'';
+  renderAdmin();
+  $('adminModal').classList.remove('hidden');
+}
+// Redrawn after every add / remove / move. Typing only updates the draft (no redraw), so focus is kept.
+function renderAdmin(){
   const wrap=$('admRows');wrap.innerHTML='';
   draft.rows.forEach((row,ri)=>{
+    if(!Array.isArray(row.tiles)) row.tiles=[];
     const sec=document.createElement('div');sec.className='adm-section';
-    const h=document.createElement('h4');h.textContent=row.name;sec.appendChild(h);
-    const ch=document.createElement('div');ch.className='adm-colhead';
-    ch.innerHTML='<span>On</span><span>Title</span><span>Description</span><span>Link (URL)</span><span>Open as</span>';
-    sec.appendChild(ch);
+
+    // section header: name + move up/down + remove
+    const hd=document.createElement('div');hd.className='adm-rowhead';
+    const lbl=document.createElement('span');lbl.className='lbl';lbl.textContent='Section';
+    const nm=document.createElement('input');nm.className='adm-in';nm.placeholder='Section name';nm.value=row.name||'';
+    nm.addEventListener('input',()=>{row.name=nm.value.trim();});
+    hd.append(lbl,nm,
+      iconBtn('↑','Move section up',()=>{swap(draft.rows,ri,ri-1);renderAdmin();},{disabled:ri===0}),
+      iconBtn('↓','Move section down',()=>{swap(draft.rows,ri,ri+1);renderAdmin();},{disabled:ri===draft.rows.length-1}),
+      iconBtn('×','Remove section',()=>{
+        const n=row.tiles.length;
+        if(n && !confirm('Remove section "'+(row.name||'(unnamed)')+'" and its '+n+' tile'+(n===1?'':'s')+'?')) return;
+        draft.rows.splice(ri,1);renderAdmin();
+      },{del:true}));
+    sec.appendChild(hd);
+
+    if(row.tiles.length){
+      const ch=document.createElement('div');ch.className='adm-colhead';
+      ch.innerHTML='<span>On</span><span>Title</span><span>Description</span><span>Link (URL)</span><span>Open as</span><span>Icon</span><span></span>';
+      sec.appendChild(ch);
+    }else{
+      const p=document.createElement('p');p.className='adm-empty';p.textContent='No tiles in this section yet (sections with no tiles are not shown on the hub).';
+      sec.appendChild(p);
+    }
+
     row.tiles.forEach((t,ti)=>{
+      if(!t.id) t.id=newTileId();
       const r=document.createElement('div');r.className='adm-tile';
       r.innerHTML=
-        '<input type="checkbox" data-k="enabled">'+
+        '<input type="checkbox" data-k="enabled" title="Show this tile">'+
         '<input type="text" data-k="title" placeholder="Title">'+
         '<input type="text" class="wide-only" data-k="desc" placeholder="Description">'+
         '<input type="text" class="wide-only" data-k="url" placeholder="https://… (blank = Coming soon)">'+
-        '<select class="wide-only" data-k="open"><option value="tab">New tab</option><option value="frame">In hub</option></select>';
+        '<select class="wide-only" data-k="open"><option value="tab">New tab</option><option value="frame">In hub</option></select>'+
+        '<select class="wide-only" data-k="icon">'+Object.keys(ICONS).map(k=>'<option value="'+k+'">'+(ICON_NAMES[k]||k)+'</option>').join('')+'</select>';
       r.querySelectorAll('[data-k]').forEach(inp=>{
         const k=inp.dataset.k;
-        if(inp.type==='checkbox') inp.checked=!!t[k]; else inp.value=t[k]||(k==='open'?'tab':'');
-        inp.addEventListener(inp.type==='checkbox'?'change':'input',()=>{
-          draft.rows[ri].tiles[ti][k]= inp.type==='checkbox'?inp.checked:inp.value.trim();
+        if(inp.type==='checkbox') inp.checked=!!t[k];
+        else inp.value=t[k]||(k==='open'?'tab':k==='icon'?'link':'');
+        inp.addEventListener(inp.type==='checkbox'||inp.tagName==='SELECT'?'change':'input',()=>{
+          t[k]= inp.type==='checkbox'?inp.checked:inp.value.trim();
         });
       });
+      const acts=document.createElement('div');acts.className='adm-btns wide-only';
+      acts.append(
+        iconBtn('↑','Move tile up',()=>{swap(row.tiles,ti,ti-1);renderAdmin();},{disabled:ti===0}),
+        iconBtn('↓','Move tile down',()=>{swap(row.tiles,ti,ti+1);renderAdmin();},{disabled:ti===row.tiles.length-1}),
+        iconBtn('×','Remove tile',()=>{
+          if(!confirm('Remove tile "'+(t.title||'(untitled)')+'"?')) return;
+          row.tiles.splice(ti,1);renderAdmin();
+        },{del:true}));
+      r.appendChild(acts);
       sec.appendChild(r);
     });
+
+    const add=document.createElement('button');add.type='button';add.className='addbtn';add.textContent='+ Add tile';
+    add.addEventListener('click',()=>{
+      row.tiles.push({id:newTileId(),title:'New tile',desc:'',icon:'link',url:'',enabled:true,open:'tab'});
+      renderAdmin();
+      const tiles=$('admRows').children[ri].querySelectorAll('.adm-tile');
+      const ti=tiles[tiles.length-1].querySelector('[data-k="title"]');ti.focus();ti.select();
+    });
+    sec.appendChild(add);
     wrap.appendChild(sec);
   });
-  $('adminModal').classList.remove('hidden');
+}
+function addSection(){
+  draft.rows.push({name:'New section',tiles:[]});
+  renderAdmin();
+  const secs=$('admRows').children, nm=secs[secs.length-1].querySelector('.adm-rowhead .adm-in');
+  nm.focus();nm.select();nm.scrollIntoView({block:'center',behavior:'smooth'});
 }
 function collectDraftText(){
   draft.hubTitle=$('admTitle').value.trim();
   draft.subtitle=$('admSub').value.trim();
+  draft.footer=$('admFooter').value.trim();
   // codes now live in Apps Script — make sure old hash fields never go back into config.json
   delete draft.accessHash;delete draft.adminHash;delete draft.sessionHours;
 }
@@ -468,6 +552,7 @@ function wire(){
   $('openAdmin').onclick=openAdmin;
   $('exitAdmin').onclick=()=>{isAdmin=false;render();};
   $('admClose').onclick=()=>$('adminModal').classList.add('hidden');
+  $('admAddRow').onclick=addSection;
   $('admPreview').onclick=()=>{collectDraftText();cfg=JSON.parse(JSON.stringify(draft));isPreview=true;
     $('adminModal').classList.add('hidden');render();toast('Preview applied');};
   $('admReset').onclick=()=>{cfg=liveCfg;isPreview=false;$('adminModal').classList.add('hidden');render();toast('Back to live config');};

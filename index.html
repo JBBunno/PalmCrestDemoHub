@@ -377,7 +377,7 @@ function makeTile(t){
   if(!t.enabled){
     const b=document.createElement('span');b.className='badge off';b.textContent='Hidden';el.appendChild(b);
   }else if(!hasUrl){
-    const b=document.createElement('span');b.className='badge';b.textContent='Coming soon';el.appendChild(b);
+    const b=document.createElement('span');b.className='badge';b.textContent='Not Activated';el.appendChild(b);
   }
   if(hasUrl && (t.enabled||isAdmin)){
     el.addEventListener('click',()=>openTile(t));

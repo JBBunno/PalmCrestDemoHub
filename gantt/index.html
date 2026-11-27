@@ -172,6 +172,7 @@ table.all td:first-child{color:var(--muted);width:42%}
 body:not(.sched) .sched-only{display:none!important}
 .brand{cursor:default;user-select:none;-webkit-tap-highlight-color:transparent}
 #btnLock{border-color:var(--late);color:var(--late)}
+body.sched .nosched-only{display:none!important}
 .dlg{background:#fff;border-radius:10px;max-width:640px;width:100%;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 50px rgba(0,0,0,.25)}
 .dlg h3{margin:0;padding:14px 18px;border-bottom:1px solid var(--line);font-size:15px}
 .dlg .db{padding:14px 18px;overflow:auto}
@@ -239,7 +240,8 @@ table.qt td:first-child,table.qt th:first-child{width:28px}
   <button id="btnRefresh" title="Reload the Google Sheet now" style="display:none">⟳ Refresh</button>
   <button id="btnSheet" class="sched-only" title="Load from a Google Sheet">Google Sheet…</button>
   <button class="primary sched-only" id="btnLoad">Load Excel…</button>
-  <button id="btnLock" class="sched-only" title="Leave scheduler mode">🔒 Lock</button>
+  <button id="btnSup" class="nosched-only" title="Supervisor access – PIN needed">🔑 Supervisor</button>
+  <button id="btnLock" class="sched-only" title="Leave supervisor mode">🔒 Lock</button>
   <input type="file" id="file" accept=".xlsx,.xlsm,.xls,.csv" hidden>
 </div>
 
@@ -345,8 +347,8 @@ table.qt td:first-child,table.qt th:first-child{width:28px}
 </div></div>
 
 <div class="ovl" id="pinOvl"><div class="dlg" style="max-width:340px">
-  <h3>Scheduler access</h3>
-  <div class="db"><p style="margin-top:0">Enter the scheduler PIN to load a different file or sheet.</p>
+  <h3>Supervisor access</h3>
+  <div class="db"><p style="margin-top:0">Enter the supervisor PIN to move tasks and load a different file or sheet.</p>
     <input id="pinIn" type="password" inputmode="numeric" autocomplete="off" style="width:100%">
     <p id="pinErr" style="color:var(--crit);margin-bottom:0;min-height:1em"></p></div>
   <div class="df"><button id="pinCancel">Cancel</button><button class="primary" id="pinGo">Unlock</button></div>
@@ -372,7 +374,7 @@ const CONFIG = {
   AUTO_REFRESH_MIN: 5,          // minutes between automatic reloads of the Google Sheet (0 = off)
   FILE: '',                     // uses the Google Sheet above (no local Excel file)
   // Sign-in + scheduler PIN are checked by the DEMO dashboard Apps Script (Auth.gs) — same URL as AUTH_URL in the hub.
-  // Scheduler mode (tap the "PalmCrest" logo 5 times) uses the hub admin PIN = Script Property ADMIN_PIN.
+  // Supervisor mode (🔑 Supervisor button in the top bar) uses the hub admin PIN = Script Property ADMIN_PIN.
   AUTH_URL: 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec',
   // ---- Gantt write-back: GanttUpdate.gs lives in the same DEMO dashboard Apps Script project,
   //      so saves go to the same URL as AUTH_URL. Set to '' to make the Gantt read-only again. ----
@@ -1317,17 +1319,15 @@ function setSched(on){
   try { on ? sessionStorage.setItem('hiogantt.sched', '1') : sessionStorage.removeItem('hiogantt.sched'); } catch(e) {}
   if(S.tasks.length){ render(); if($('#card').classList.contains('open') && S.selI >= 0) openCard(S.selI); }   // bars become draggable / not
 }
-let brandTaps = 0, brandTimer = null;
-$('.brand').addEventListener('click', () => {
-  brandTaps++; clearTimeout(brandTimer); brandTimer = setTimeout(() => brandTaps = 0, 2000);
-  if(brandTaps >= 5 && !isSched()){
-    brandTaps = 0; $('#pinIn').value = ''; $('#pinErr').textContent = '';
-    $('#pinOvl').classList.add('open'); setTimeout(() => $('#pinIn').focus(), 50);
-  }
+// Supervisor button (top bar) → PIN box. Same PIN as before (hub ADMIN_PIN).
+$('#btnSup').addEventListener('click', () => {
+  if(isSched()) return;
+  $('#pinIn').value = ''; $('#pinErr').textContent = '';
+  $('#pinOvl').classList.add('open'); setTimeout(() => $('#pinIn').focus(), 50);
 });
 async function tryPin(){
   const pin = $('#pinIn').value.trim();
-  if(!pin){ $('#pinErr').textContent = 'Enter the scheduler PIN'; return; }
+  if(!pin){ $('#pinErr').textContent = 'Enter the supervisor PIN'; return; }
   $('#pinGo').disabled = true; $('#pinErr').textContent = '';
   try {
     const d = await authCall('adminLogin', {code:pin});
@@ -1335,7 +1335,7 @@ async function tryPin(){
       S.pin = pin;
       setSched(true); $('#pinOvl').classList.remove('open');
       if(pinResume){ const f = pinResume; pinResume = null; f(); }
-      else toast('Scheduler mode on – Load Excel and Google Sheet are available' + (CONFIG.EDIT_URL ? ', and task bars can be dragged' : ''));
+      else toast('Supervisor mode on – task bars can be dragged' + ' · Load Excel and Google Sheet are available');
     } else { $('#pinErr').textContent = (d.error === 'Invalid code') ? 'Incorrect PIN' : (d.error || 'Incorrect PIN'); $('#pinIn').select(); }
   } catch(e){
     $('#pinErr').textContent = 'Could not reach the server – please try again';
@@ -1348,7 +1348,7 @@ $('#btnLock').addEventListener('click', () => {
   setSched(false); S.pin = '';
   // back to the official HIO sheet if a different source was loaded
   if(!S.live || S.live.input !== CONFIG.SHEET){ S.live = null; loadGoogle(CONFIG.SHEET); }
-  toast('Scheduler mode off');
+  toast('Supervisor mode off');
 });
 try { if(sessionStorage.getItem('hiogantt.sched') === '1') document.body.classList.add('sched'); } catch(e) {}
 
@@ -1702,7 +1702,7 @@ function editHTML(t){
   }
   h += `<div class="er" style="margin-bottom:4px"><label>Notes</label></div><textarea id="eNotes" maxlength="5000" placeholder="Add a note for the scheduler…">${esc(t.notes)}</textarea>
     <div class="ef"><span id="eMsg">${t.summary ? '' : `Project shows ${Math.round(t.pct || 0)}%`}</span><button id="eSave" title="Save just this task now">Save now</button><button class="primary" id="eStage" title="Add to the update list and save later with others">Add to updates</button></div>
-    ${isSched() && !t.summary ? '<div class="hint">Scheduler mode: drag bars in the Gantt to move tasks – each move is added to the update list.</div>' : ''}</div>`;
+    ${isSched() && !t.summary ? '<div class="hint">Supervisor mode: drag bars in the Gantt to move tasks – each move is added to the update list.</div>' : ''}</div>`;
   return h;
 }
 function setEditPct(n){ const a = $('#ePct'), b = $('#ePctR'); if(a) a.value = n; if(b) b.value = n; }
@@ -1740,7 +1740,7 @@ async function saveCardEdit(){
     if(r && r.ok){ m.className = 'ok'; m.textContent = 'Saved to the sheet ✓'; }
     else { m.className = 'err'; m.textContent = 'Not saved – ' + ((r && r.error) || 'error') + ' (kept in the update list)'; }
   });
-  if(res === 'pin'){ msg.textContent = 'Enter the scheduler PIN to save the move…'; btn.disabled = false; }
+  if(res === 'pin'){ msg.textContent = 'Enter the supervisor PIN to save the move…'; btn.disabled = false; }
 }
 
 /* ---------- sending ---------- */
@@ -1750,7 +1750,7 @@ async function postJSON(body){
   const txt = await r.text();
   let d; try { d = JSON.parse(txt); } catch(e) { console.warn('Gantt save – server reply:', txt); throw new Error('script did not return JSON – is the new version deployed?'); }
   if(d.auth){ toLogin(); throw new Error('signed out'); }
-  if(d.pin){ S.pin = ''; const e = new Error(d.error || 'Scheduler PIN needed'); e.pin = true; throw e; }
+  if(d.pin){ S.pin = ''; const e = new Error(d.error || 'Supervisor PIN needed'); e.pin = true; throw e; }
   if(!d.ok && !d.results) throw new Error(d.error || ('GanttUpdate not reached – script replied: ' + (d.message || txt.slice(0, 120))));
   if(S.live) S.live.at = Date.now();   // hold off the next auto-refresh so the sheet export catches up
   return d;
@@ -1762,7 +1762,7 @@ async function sendBatch(uids, after){
   const needPin = entries.some(e => e.ch.start != null);
   if(needPin && !S.pin){
     pinResume = async () => { const r = await sendBatch(uids, after); if(after) after(r); };
-    $('#pinIn').value = ''; $('#pinErr').textContent = 'Enter the scheduler PIN to save task moves';
+    $('#pinIn').value = ''; $('#pinErr').textContent = 'Enter the supervisor PIN to save task moves';
     $('#pinOvl').classList.add('open'); setTimeout(() => $('#pinIn').focus(), 50);
     return 'pin';
   }
@@ -1807,7 +1807,7 @@ function openQueue(){
   list.sort((a, b) => (S.base.indexOf(byUid.get(a.uid)) - S.base.indexOf(byUid.get(b.uid))));
   const moves = list.filter(e => e.ch.start != null).length;
   $('#qTitle').textContent = `Proposed updates (${list.length} task${list.length > 1 ? 's' : ''})`;
-  $('#qBody').innerHTML = `${moves ? `<p class="qinfo">${moves} task move${moves > 1 ? 's' : ''} – the scheduler PIN is needed to save these. Linked tasks are not moved; re-import into MS Project to reschedule the logic.</p>` : ''}
+  $('#qBody').innerHTML = `${moves ? `<p class="qinfo">${moves} task move${moves > 1 ? 's' : ''} – the supervisor PIN is needed to save these. Linked tasks are not moved; re-import into MS Project to reschedule the logic.</p>` : ''}
     <table class="qt"><thead><tr><th><input type="checkbox" id="qAll" checked></th><th>Task</th><th>Change</th><th></th></tr></thead><tbody>
     ${list.map(e => { const t = byUid.get(e.uid); return `<tr data-uid="${esc(e.uid)}">
       <td><input type="checkbox" class="qc" checked></td>

@@ -73,19 +73,19 @@
         {
           "id": "upload",
           "title": "Schedule Data Upload",
-          "desc": "Upload the MS Project Excel export",
+          "desc": "Schedule Data Management",
           "icon": "upload",
-          "url": "",
+          "url": "https://livetrack.palmcrest.com.au/upload/",
           "enabled": true,
           "open": "tab"
         },
         {
           "id": "sheet",
           "title": "Source Data Sheet",
-          "desc": "Google Sheet holding the schedule data",
+          "desc": "Source Data File",
           "icon": "sheet",
-          "url": "",
-          "enabled": true,
+          "url": "https://docs.google.com/spreadsheets/d/1EkcwCbDbvTofdkWUFYFUn7qecS5W7dUKIWa24S_n9ws/edit",
+          "enabled": false,
           "open": "tab"
         }
       ]

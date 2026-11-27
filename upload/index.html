@@ -51,6 +51,11 @@
     button:disabled { background: #556; color: #aab; cursor: default; }
     .status { margin-top: 12px; font-size: 14px; white-space: pre-line; min-height: 1em; }
     .ok { color: var(--ok); } .err { color: var(--err); } .busy { color: var(--teal); }
+    button.alt { background: transparent; color: var(--teal); border: 1px solid rgba(90,180,212,.6); font-weight: 400; }
+    button.alt:hover:not(:disabled) { background: rgba(90,180,212,.12); }
+    .info { margin-top: 10px; font-size: 13px; color: var(--muted); line-height: 1.5; min-height: 1em; }
+    .info b { color: var(--text); font-weight: 400; }
+    .info .warn { color: var(--amber); }
     .steps { color: var(--muted); font-size: 13px; line-height: 1.6; margin: 0; padding-left: 18px; }
     footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 24px; }
     footer a { color: var(--teal); text-decoration: none; }
@@ -70,20 +75,28 @@
     </div>
 
     <div class="panel card">
-      <h2>SPT Shutdown Schedule</h2>
+      <h2>1 · Download current data</h2>
+      <p class="hint">Saves the live Google Sheet (including the online Gantt updates – % update, notes and moved dates) as an Excel file for the MS Project import macro. Do this <b>before</b> updating the schedule and uploading.</p>
+      <button id="btnDl" class="alt">⬇ Download current data (.xlsx)</button>
+      <div class="info" id="dlInfo">Enter the PIN above to see when it was last downloaded.</div>
+    </div>
+
+    <div class="panel card">
+      <h2>2 · Upload updated schedule</h2>
       <p class="hint">Excel export containing the <b>Tasks</b> and <b>ExcSum</b> sheets.</p>
       <label for="sdate">Status Date <span style="color:var(--amber)">*</span> — the Status Date set in MS Project for this export</label>
       <input type="datetime-local" id="sdate" style="margin-bottom:12px">
       <div class="drop" id="drop">Drop the Excel file here or <b>click to choose</b></div>
       <input type="file" id="file" accept=".xlsx,.xlsm,.xls" hidden>
       <div class="fname" id="fname"></div>
-      <button id="btn">Upload to HIO Dashboard</button>
+      <button id="btn">Upload to Dashboard</button>
       <div class="status" id="status"></div>
     </div>
 
     <div class="panel">
       <ol class="steps">
         <li>The file is checked first — if it isn't the right export, nothing is changed.</li>
+        <li>If there are online Gantt edits since the last download, you're warned before they are overwritten.</li>
         <li>A backup of the current data is saved automatically.</li>
         <li>The Tasks and ExcSum data are replaced (takes up to about a minute).</li>
       </ol>
@@ -94,7 +107,8 @@
 
 <script>
   // ===== Set this to the HIO upload Apps Script web app URL (ends in /exec) =====
-  const EXEC_URL = 'https://script.google.com/macros/s/AKfycbzMP34afiShlq1FHBFbhULSsYIeeFriqorOMvRwpaMmgwWXoLD-bi0SqnzQYyEBchdIfQ/exec';
+  // Same deployment the online Gantt saves through (PalmCrestDemoData project: Code.gs + Upload-Code.gs + Auth.gs + GanttUpdate.gs)
+  const EXEC_URL = 'https://script.google.com/macros/s/AKfycbxjM6vqTSZ9l2cB_8nRDwRte1NGLyNi-hY6QwEqIA06XtfXTce1_C24N_g1DiBCycFj/exec';
   const MAX_MB   = 40;
 
   const $ = id => document.getElementById(id);
@@ -117,6 +131,54 @@
   ['dragleave','drop'].forEach(ev => $('drop').addEventListener(ev, e => { e.preventDefault(); $('drop').classList.remove('over'); }));
   $('drop').addEventListener('drop', e => pick(e.dataTransfer.files[0]));
 
+  async function post(body) {
+    const res = await fetch(EXEC_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(body) });
+    return res.json();
+  }
+
+  // ---- online edits since the last download / upload ----
+  async function checkEdits(pin) {
+    try { const d = await post({ action: 'editCheck', pin }); return d.ok ? d : null; } catch (e) { return null; }
+  }
+  function showInfo(d) {
+    const el = $('dlInfo');
+    if (!d) { el.textContent = 'Could not check for online edits.'; return; }
+    const parts = [];
+    parts.push('Last download: <b>' + (d.lastDownload || 'never') + '</b>');
+    if (d.lastUpload) parts.push('last upload: <b>' + d.lastUpload + '</b>');
+    let line = parts.join(' · ');
+    line += d.edits
+      ? '<br><span class="warn">⚠ ' + d.edits + ' online edit' + (d.edits > 1 ? 's' : '') + ' on ' + d.tasks + ' task' + (d.tasks > 1 ? 's' : '') + ' since the last ' + (d.sinceWhat || 'upload') + ' (latest ' + d.latest + ') – download before updating the schedule.</span>'
+      : '<br>No online edits since the last ' + (d.sinceWhat || 'upload') + '.';
+    el.innerHTML = line;
+  }
+  let infoTimer = null;
+  $('pin').addEventListener('input', () => {
+    clearTimeout(infoTimer);
+    const pin = $('pin').value.trim();
+    if (pin.length < 4) return;
+    infoTimer = setTimeout(async () => { const d = await checkEdits(pin); if (d) showInfo(d); }, 600);
+  });
+
+  // ---- download current data ----
+  $('btnDl').addEventListener('click', async () => {
+    const pin = $('pin').value.trim();
+    if (!pin) { $('dlInfo').innerHTML = '<span style="color:var(--err)">Please enter the PIN at the top.</span>'; return; }
+    $('btnDl').disabled = true; $('dlInfo').textContent = 'Preparing the Excel file…';
+    try {
+      const d = await post({ action: 'download', pin });
+      if (!d.ok) { $('dlInfo').innerHTML = '<span style="color:var(--err)">' + (d.message || 'Download failed') + '</span>'; return; }
+      const bin = atob(d.base64), bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a = document.createElement('a'); a.href = url; a.download = d.fileName; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+      showInfo(await checkEdits(pin));
+    } catch (err) {
+      $('dlInfo').innerHTML = '<span style="color:var(--err)">Download failed: ' + (err.message || err) + '</span>';
+    } finally { $('btnDl').disabled = false; }
+  });
+
   function readAsBase64(file) {
     return new Promise((resolve, reject) => {
       const r = new FileReader();
@@ -133,21 +195,25 @@
     const statusDate = $('sdate').value;
     if (!statusDate) return setStatus('Please enter the Status Date used in MS Project.', 'err');
     if (chosen.size > MAX_MB * 1048576) return setStatus('File is larger than ' + MAX_MB + ' MB.', 'err');
-    if (!confirm('Replace the HIO dashboard data with "' + chosen.name + '"\nStatus date: ' + statusDate.replace('T', ' ') + ' ?')) return;
+    // reminder: online Gantt edits made since the last download would be overwritten
+    $('btn').disabled = true; setStatus('Checking for online edits…', 'busy');
+    const chk = await checkEdits(pin);
+    $('btn').disabled = false; setStatus('');
+    if (chk) showInfo(chk);
+    let warn = '';
+    if (!chk) warn = '\n\n(Could not check for online Gantt edits – check the PIN.)';
+    else if (chk.edits) warn = '\n\n⚠ ' + chk.edits + ' online Gantt edit' + (chk.edits > 1 ? 's' : '') + ' on ' + chk.tasks + ' task' + (chk.tasks > 1 ? 's' : '') +
+      ' since the last ' + (chk.sinceWhat || 'upload') + ' (latest ' + chk.latest + ').\nThey will be OVERWRITTEN unless they are already in this file.\nCancel and use “Download current data” first if they still need importing.';
+    if (!confirm('Replace the dashboard data with "' + chosen.name + '"\nStatus date: ' + statusDate.replace('T', ' ') + ' ?' + warn)) return;
     try { localStorage.setItem('hio_upload_sd', statusDate); } catch (e) {}
 
     $('btn').disabled = true;
     setStatus('Uploading and updating… this can take up to a minute. Please keep this page open.', 'busy');
     try {
       const base64 = await readAsBase64(chosen);
-      const res = await fetch(EXEC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },   // avoids CORS preflight
-        body: JSON.stringify({ action: 'upload', pin, fileName: chosen.name, base64, statusDate })
-      });
-      const data = await res.json();
+      const data = await post({ action: 'upload', pin, fileName: chosen.name, base64, statusDate });   // text/plain avoids CORS preflight
       setStatus(data.message, data.ok ? 'ok' : 'err');
-      if (data.ok) { chosen = null; $('file').value = ''; $('fname').textContent = ''; }
+      if (data.ok) { chosen = null; $('file').value = ''; $('fname').textContent = ''; showInfo(await checkEdits(pin)); }
     } catch (err) {
       setStatus('Upload failed: ' + (err.message || err) + '\nCheck your connection and try again.', 'err');
     } finally {
